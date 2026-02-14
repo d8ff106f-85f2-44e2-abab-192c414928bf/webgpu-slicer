@@ -1,268 +1,21 @@
-// Show an error dialog if there's any uncaught exception or promise rejection.
-// This gets set up on all pages that include util.ts.
-globalThis.addEventListener('unhandledrejection', (ev) => {
-    fail(`unhandled promise rejection, please report a bug!
-  https://github.com/webgpu/webgpu-samples/issues/new\n${ev.reason}`);
-});
-globalThis.addEventListener('error', (ev) => {
-    fail(`uncaught exception, please report a bug!
-  https://github.com/webgpu/webgpu-samples/issues/new\n${ev.error}`);
-});
-/** Shows an error dialog if getting an adapter wasn't successful. */
-function quitIfAdapterNotAvailable(adapter) {
-    if (!('gpu' in navigator)) {
-        fail('navigator.gpu is not defined - WebGPU not available in this browser');
-    }
-    if (!adapter) {
-        fail("requestAdapter returned null - this sample can't run on this system");
-    }
-}
-function supportsDirectBufferBinding(device) {
-    const buffer = device.createBuffer({
-        size: 16,
-        usage: GPUBufferUsage.UNIFORM,
-    });
-    const layout = device.createBindGroupLayout({
-        entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: {} }],
-    });
-    try {
-        device.createBindGroup({
-            layout,
-            entries: [{ binding: 0, resource: buffer }],
-        });
-        return true;
-    }
-    catch {
-        return false;
-    }
-    finally {
-        buffer.destroy();
-    }
-}
-function supportsDirectTextureBinding(device) {
-    const texture = device.createTexture({
-        size: [1],
-        usage: GPUTextureUsage.TEXTURE_BINDING,
-        format: 'rgba8unorm',
-    });
-    const layout = device.createBindGroupLayout({
-        entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: {} }],
-    });
-    try {
-        device.createBindGroup({
-            layout,
-            entries: [{ binding: 0, resource: texture }],
-        });
-        return true;
-    }
-    catch {
-        return false;
-    }
-    finally {
-        texture.destroy();
-    }
-}
-function supportsDirectTextureAttachments(device) {
-    const texture = device.createTexture({
-        size: [1],
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        format: 'rgba8unorm',
-        sampleCount: 4,
-    });
-    const resolveTarget = device.createTexture({
-        size: [1],
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        format: 'rgba8unorm',
-    });
-    const depthTexture = device.createTexture({
-        size: [1],
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        format: 'depth16unorm',
-        sampleCount: 4,
-    });
-    const encoder = device.createCommandEncoder();
-    try {
-        const pass = encoder.beginRenderPass({
-            colorAttachments: [
-                { view: texture, resolveTarget, loadOp: 'load', storeOp: 'store' },
-            ],
-            depthStencilAttachment: {
-                view: depthTexture,
-                depthLoadOp: 'load',
-                depthStoreOp: 'store',
-            },
-        });
-        pass.end();
-        return true;
-    }
-    catch (e) {
-        console.error(e);
-        return false;
-    }
-    finally {
-        encoder.finish();
-        texture.destroy();
-        resolveTarget.destroy();
-    }
-}
-/**
- * Shows an error dialog if getting a adapter or device wasn't successful,
- * or if/when the device is lost or has an uncaptured error. Also checks
- * for direct buffer binding, direct texture binding, and direct texture attachment binding.
- */
-function quitIfWebGPUNotAvailableOrMissingFeatures(adapter, device) {
-    if (!device) {
-        quitIfAdapterNotAvailable(adapter);
-        fail('Unable to get a device for an unknown reason');
-        return;
-    }
-    device.lost.then((reason) => {
-        fail(`Device lost ("${reason.reason}"):\n${reason.message}`);
-    });
-    device.addEventListener('uncapturederror', (ev) => {
-        fail(`Uncaptured error:\n${ev.error.message}`);
-    });
-    if (!supportsDirectBufferBinding(device) ||
-        !supportsDirectTextureBinding(device) ||
-        !supportsDirectTextureAttachments(device)) {
-        fail('Core features of WebGPU are unavailable. Please update your browser to a newer version.');
-    }
-}
-/** Fail by showing a console error, and dialog box if possible. */
-const fail = (() => {
-    function createErrorOutput() {
-        if (typeof document === 'undefined') {
-            // Not implemented in workers.
-            return {
-                show(msg) {
-                    console.error(msg);
-                },
-            };
-        }
-        const dialogBox = document.createElement('dialog');
-        dialogBox.close();
-        document.body.append(dialogBox);
-        const dialogText = document.createElement('pre');
-        dialogText.style.whiteSpace = 'pre-wrap';
-        dialogBox.append(dialogText);
-        const closeBtn = document.createElement('button');
-        closeBtn.textContent = 'OK';
-        closeBtn.onclick = () => dialogBox.close();
-        dialogBox.append(closeBtn);
-        return {
-            show(msg) {
-                // Don't overwrite the dialog message while it's still open
-                // (show the first error, not the most recent error).
-                if (!dialogBox.open) {
-                    dialogText.textContent = msg;
-                    dialogBox.showModal();
-                }
-            },
-        };
-    }
-    let output;
-    return (message) => {
-        if (!output)
-            output = createErrorOutput();
-        output.show(message);
-        throw new Error(message);
-    };
-})();
+const canvas = document.querySelector('canvas');
+let dragX = 0;
+let dragY = 0;
+let dragT = 0;
+let viewQuat = Quat(0.5,0.5,0.5,0.5);
+let frame_queued = false;
+let slider_value = document.getElementById("scale").value;
+let drawframe = function(timestamp) {};
 
+document.getElementById("scale").addEventListener("input", handle_slider);
+canvas.addEventListener("mousemove", handle_move);
+canvas.addEventListener("touchmove", handle_touch);
+canvas.addEventListener("mousedown",  handle_down);
+canvas.addEventListener("touchstart", handle_down);
+document.addEventListener("mouseup", handle_up);
+document.addEventListener("touchend", handle_up);
 
-
-
-function Quat(i,j,k,l) {
-    return {
-        i,
-        j,
-        k,
-        l,
-
-        exp() {
-            const i = this.i;
-            const j = this.j;
-            const k = this.k;
-            const l = this.l;
-            const ijk = Math.sqrt(i*i + j*j + k*k);
-            const cos = Math.cos(ijk);
-            const sin = Math.sin(ijk);
-            const mag = Math.exp(l);
-            return Quat(
-                mag * sin * i / ijk,
-                mag * sin * j / ijk,
-                mag * sin * k / ijk,
-                mag * cos,
-            );
-        },
-
-        log() {
-            const i = this.i;
-            const j = this.j;
-            const k = this.k;
-            const l = this.l;
-            const ll = l*l;
-            const rr = i*i + j*j + k*k;
-            const ang = Math.atan2(Math.sqrt(rr), Math.sqrt(ll));
-            const ijk = Math.sqrt(rr);
-            return Quat(
-                ang * i / ijk,
-                ang * j / ijk,
-                ang * k / ijk,
-                0.5 * Math.log(ll + rr),
-            );
-        },
-
-        outer(that) {
-            return [
-                this.i * that.i, this.i * that.j, this.i * that.k, this.i * that.l,
-                this.j * that.i, this.j * that.j, this.j * that.k, this.j * that.l,
-                this.k * that.i, this.k * that.j, this.k * that.k, this.k * that.l,
-                this.l * that.i, this.l * that.j, this.l * that.k, this.l * that.l,
-            ];
-        },
-
-        compose(that) {
-            const [ ii , ij , ik , il , 
-                    ji , jj , jk , jl , 
-                    ki , kj , kk , kl , 
-                    li , lj , lk , ll ] = this.outer(that);
-            return Quat(
-                li - kj + jk + il, 
-                lj + ki + jl - ik, 
-                lk + kl - ji + ij, 
-                ll - kk - jj - ii,
-            );
-        },
-
-        asColMat() {
-            const [ ii , ij , ik , il , 
-                    ji , jj , jk , jl , 
-                    ki , kj , kk , kl , 
-                    li , lj , lk , ll ] = this.outer(this);
-            return [
-                (ll+ii)-(jj+kk), 
-                (ij+ji)+(lk+kl), 
-                (ki+ik)-(lj+jl), 
-
-                (ij+ji)-(lk+kl),
-                (ll+jj)-(kk+ii),
-                (jk+kj)+(li+il),
-
-                (ki+ik)+(lj+jl),                
-                (jk+kj)-(li+il),
-                (ll+kk)-(ii+jj),                
-            ];
-        },
-    };
-};
-
-
-
-
-
-
-
+main();
 
 async function main() {
     const vert_wgsl = await (await fetch('vert.wgsl')).text();
@@ -274,7 +27,6 @@ async function main() {
     const device = await adapter?.requestDevice();
     quitIfWebGPUNotAvailableOrMissingFeatures(adapter, device);
 
-    const canvas = document.querySelector('canvas');
     const context = canvas.getContext('webgpu');
     canvas.width = canvas.clientWidth * window.devicePixelRatio;
     canvas.height = canvas.clientHeight * window.devicePixelRatio;
@@ -415,72 +167,7 @@ async function main() {
     const projMatrix = new Float32Array(16);
     const viewMatrix = new Float32Array(16);
 
-    let dragX = 0;
-    let dragY = 0;
-    let dragT = 0;
-    let viewQuat = Quat(0.5,0.5,0.5,0.5);
-    let frame_queued = false;
-    let slider_value = document.getElementById("scale").value;
-    
-    function handle_slider(event) {
-        slider_value = event.target.value;
-        if (!frame_queued) {
-            frame_queued = true;
-            requestAnimationFrame(frame);
-        }
-    }
-    function handle_up(event) {
-        dragT = 0;
-    }
-    function handle_down(event) {
-        dragX = event.clientX;
-        dragY = event.clientY;
-        dragT = event.timeStamp;
-    }
-    function handle_move(event) {
-        if (dragT == 0) return;
-        const rx = event.clientX - dragX;
-        const ry = event.clientY - dragY;
-        const rr = rx*rx + ry*ry;
-        dragX = event.clientX;
-        dragY = event.clientY;
-        if (rr > 0) {
-            const sens = 16.0 * Math.PI / 10800.0;
-            const rad = Math.sqrt(rr) * sens;
-            const rot = Quat(
-                Math.sin(rad/2) * (-ry) / Math.sqrt(rr),
-                Math.sin(rad/2) * (-rx) / Math.sqrt(rr),
-                0,
-                Math.cos(rad/2),
-            )
-            viewQuat = viewQuat.compose(rot);
-            if (!frame_queued) {
-                frame_queued = true;
-                requestAnimationFrame(frame);
-            }
-        }
-    }
-    function handle_touch(event) {
-        let dx = 0;
-        let dy = 0;
-        for (let i = 0; i < event.touches.length; i++) {
-            dx += event.touches[i].clientX;
-            dy += event.touches[i].clientY;
-        }
-        if (dx == 0 && dy == 0) return;
-        event.clientX = dx / event.touches.length;
-        event.clientY = dy / event.touches.length;
-        handle_move(event);
-    }
-    document.addEventListener("mouseup", handle_up);
-    document.addEventListener("touchend", handle_up);
-    canvas.addEventListener("mousedown",  handle_down);
-    canvas.addEventListener("touchstart", handle_down);
-    canvas.addEventListener("mousemove", handle_move);
-    canvas.addEventListener("touchmove", handle_touch);
-    document.getElementById("scale").addEventListener("input", handle_slider);
-
-    function frame(timestamp) {
+    drawframe = function(timestamp) {
         const w = canvas.clientWidth * window.devicePixelRatio;
         const h = canvas.clientHeight * window.devicePixelRatio;
         const f = Math.sqrt(w*w + h*h); 
@@ -521,8 +208,146 @@ async function main() {
     }
 
     frame_queued = true;
-    requestAnimationFrame(frame);
+    requestAnimationFrame(drawframe);
+
 }
 
+function handle_slider(event) {
+    slider_value = event.target.value;
+    if (!frame_queued) {
+        frame_queued = true;
+        requestAnimationFrame(drawframe);
+    }
+}
 
-main();
+function handle_move(event) {
+    if (dragT == 0) return;
+    const rx = event.clientX - dragX;
+    const ry = event.clientY - dragY;
+    const rr = rx*rx + ry*ry;
+    dragX = event.clientX;
+    dragY = event.clientY;
+    if (rr > 0) {
+        const sens = 16.0 * Math.PI / 10800.0; // 16 arcmin per count
+        const rad = Math.sqrt(rr) * sens;
+        const rot = Quat(
+            Math.sin(rad/2) * (-ry) / Math.sqrt(rr),
+            Math.sin(rad/2) * (-rx) / Math.sqrt(rr),
+            0,
+            Math.cos(rad/2),
+        )
+        viewQuat = viewQuat.compose(rot);
+        if (!frame_queued) {
+            frame_queued = true;
+            requestAnimationFrame(drawframe);
+        }
+    }
+}
+
+function handle_touch(event) {
+    let dx = 0;
+    let dy = 0;
+    for (let i = 0; i < event.touches.length; i++) {
+        dx += event.touches[i].clientX;
+        dy += event.touches[i].clientY;
+    }
+    if (dx == 0 && dy == 0) return;
+    event.clientX = dx / event.touches.length;
+    event.clientY = dy / event.touches.length;
+    handle_move(event);
+}
+
+function handle_down(event) {
+    dragX = event.clientX;
+    dragY = event.clientY;
+    dragT = event.timeStamp;
+}
+
+function handle_up(event) {
+    dragT = 0;
+}
+
+function Quat(i,j,k,l) {
+    return {
+        i,
+        j,
+        k,
+        l,
+
+        exp() {
+            const i = this.i;
+            const j = this.j;
+            const k = this.k;
+            const l = this.l;
+            const ijk = Math.sqrt(i*i + j*j + k*k);
+            const cos = Math.cos(ijk);
+            const sin = Math.sin(ijk);
+            const mag = Math.exp(l);
+            return Quat(
+                mag * sin * i / ijk,
+                mag * sin * j / ijk,
+                mag * sin * k / ijk,
+                mag * cos,
+            );
+        },
+
+        log() {
+            const i = this.i;
+            const j = this.j;
+            const k = this.k;
+            const l = this.l;
+            const ll = l*l;
+            const rr = i*i + j*j + k*k;
+            const ang = Math.atan2(Math.sqrt(rr), Math.sqrt(ll));
+            const ijk = Math.sqrt(rr);
+            return Quat(
+                ang * i / ijk,
+                ang * j / ijk,
+                ang * k / ijk,
+                0.5 * Math.log(ll + rr),
+            );
+        },
+
+        outer(that) {
+            return [
+                this.i * that.i, this.i * that.j, this.i * that.k, this.i * that.l,
+                this.j * that.i, this.j * that.j, this.j * that.k, this.j * that.l,
+                this.k * that.i, this.k * that.j, this.k * that.k, this.k * that.l,
+                this.l * that.i, this.l * that.j, this.l * that.k, this.l * that.l,
+            ];
+        },
+
+        compose(that) {
+            const [ ii , ij , ik , il , 
+                    ji , jj , jk , jl , 
+                    ki , kj , kk , kl , 
+                    li , lj , lk , ll ] = this.outer(that);
+            return Quat(
+                li - kj + jk + il, 
+                lj + ki + jl - ik, 
+                lk + kl - ji + ij, 
+                ll - kk - jj - ii,
+            );
+        },
+
+        asColMat() {
+            const [ ii , ij , ik , il , 
+                    ji , jj , jk , jl , 
+                    ki , kj , kk , kl , 
+                    li , lj , lk , ll ] = this.outer(this);
+            return [
+                (ll+ii)-(jj+kk), 
+                (ij+ji)+(lk+kl), 
+                (ki+ik)-(lj+jl), 
+
+                (ij+ji)-(lk+kl),
+                (ll+jj)-(kk+ii),
+                (jk+kj)+(li+il),
+
+                (ki+ik)+(lj+jl),                
+                (jk+kj)-(li+il),
+                (ll+kk)-(ii+jj),                
+            ];
+        },
+    };
+};
