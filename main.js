@@ -155,7 +155,7 @@ async function init() {
     });
     const device = await adapter?.requestDevice({
         requiredLimits: {
-            maxBufferSize: 2147483648
+            maxBufferSize: 512*1024*1024,
         }
     });
     quitIfWebGPUNotAvailableOrMissingFeatures(adapter, device);
