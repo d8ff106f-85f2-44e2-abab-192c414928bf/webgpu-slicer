@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <meta charset="utf-8">
+<meta name="color-scheme" content="dark">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
     html, body { 
@@ -15,7 +16,9 @@
         height: 100%;
     }
 </style>
-<input style="width:100%" type="range" id="scale" min="-1" max="1" value="0" step="0.001">
-<canvas></canvas>
+<input style="width:100%" type="range" id="scale" min="0" max="1" value="0.5" step="0.0000152587890625">
+<input id="upload" type="file">
+<button id="button">Load Model</button>
+<canvas id="canvas" oncontextmenu="return false"></canvas>
 <script src="gpucheck.js"></script>
 <script src="main.js"></script>

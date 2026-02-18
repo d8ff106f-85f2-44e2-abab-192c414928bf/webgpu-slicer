@@ -1,10 +1,14 @@
-const canvas = document.querySelector('canvas');
+const canvas = document.getElementById('canvas');
+const button = document.getElementById('button');
 let dragX = 0;
 let dragY = 0;
 let dragT = 0;
-let viewQuat = Quat(0.5,0.5,0.5,0.5);
-let zoom = 0;
+let viewQuat = Quat(0,0,Math.sqrt(0.5),Math.sqrt(0.5));
+let viewPos = [-152, 99, -166];
 let slider_value = document.getElementById("scale").value;
+let last_slider_value = 0;
+let slicer_wasm = {};
+let slicer_data = 0;
 let drawframe = function(timestamp) {};
 
 document.getElementById("scale").addEventListener("input", handle_slider);
@@ -16,17 +20,144 @@ window.addEventListener("mouseup", handle_up);
 window.addEventListener("touchend", handle_up);
 window.addEventListener("resize", handle_resize);
 window.addEventListener("wheel", handle_wheel);
+button.addEventListener("click", init );
 window.frame_queued = false;
-main();
 
-async function main() {
+async function init() {
+
+    const button = document.getElementById('button');
+    button.disabled = true;
+    button.textContent = 'Reading model...';
+    
+    const upload = document.getElementById('upload');
+
+    const file_stream = upload.files[0].stream();
+    const file_size = upload.files[0].size;
+
+
+    const parser_memory = new WebAssembly.Memory({
+        initial: 17,
+        maximum: 65536,
+    });
+
+    const parser = await WebAssembly.instantiateStreaming(
+        await fetch("wasm-parser.wasm"),
+        {
+            env: { 
+                memory: parser_memory,
+                log_node_start: ()=>console.log("parsing nodes..."), 
+                log_elem_start: ()=>console.log("parsing elems..."),
+            },
+        },
+    );
+
+    const file_ptr = parser.instance.exports.initMemory(file_size);
+    if (file_ptr == 0) {
+        console.log("failed to init parser memory");
+        return;
+    }
+
+    const destination = new Uint8Array(parser_memory.buffer, file_ptr, file_size);
+    let offset = 0;
+    for await (const chunk of file_stream) {
+        destination.set(chunk, offset);
+        offset += chunk.length;
+    }
+
+    console.log("parsing model...");
+    button.textContent = 'Processing model...';
+    const meta_ptr = parser.instance.exports.parseModel(file_ptr, file_size);
+    if (meta_ptr == 0) {
+        console.log("failed to parse model");
+        return;
+    }
+
+    const meta = new Uint32Array(parser_memory.buffer, meta_ptr, 7);
+    
+    const nodes_count = meta[0];
+    const elems_count = meta[1];
+    const nodes_x_ptr = meta[2];
+    const nodes_y_ptr = meta[3];
+    const nodes_z_ptr = meta[4];
+    const elems_v_ptr = meta[5];
+    const nodes_n_ptr = meta[6];
+
+    const xs_src = new Float32Array(parser_memory.buffer, nodes_x_ptr, nodes_count);
+    const ys_src = new Float32Array(parser_memory.buffer, nodes_y_ptr, nodes_count);
+    const zs_src = new Float32Array(parser_memory.buffer, nodes_z_ptr, nodes_count);
+    const tets_src = new Uint32Array(parser_memory.buffer, elems_v_ptr, elems_count * 4);
+    const ns_src = new Uint32Array(parser_memory.buffer, nodes_n_ptr, nodes_count);
+
+    const slicer_memory = new WebAssembly.Memory({
+        initial: 17,
+        maximum: 65536,
+    });
+
+    const slicer = await WebAssembly.instantiateStreaming(
+        await fetch("wasm-slicer.wasm"),
+        {
+            env: { 
+                memory: slicer_memory,
+            },
+        },
+    );
+
+
+    const data_ptr = slicer.instance.exports.initMemory(nodes_count, elems_count);
+    if (data_ptr == 0) {
+        console.log("failed to init slicer memory");
+        return;
+    }
+
+    const data = new Uint32Array(slicer_memory.buffer, data_ptr, 26);
+
+    const ns_dst = new Uint32Array(slicer_memory.buffer, data[1], nodes_count);
+    const xs_dst = new Float32Array(slicer_memory.buffer, data[2], nodes_count);
+    const ys_dst = new Float32Array(slicer_memory.buffer, data[3], nodes_count);
+    const zs_dst = new Float32Array(slicer_memory.buffer, data[4], nodes_count);
+    const tets_dst = new Uint32Array(slicer_memory.buffer, data[13], elems_count * 4);
+
+    ns_dst.set(ns_src);
+    xs_dst.set(xs_src);
+    ys_dst.set(ys_src);
+    zs_dst.set(zs_src);
+    tets_dst.set(tets_src);
+
+    console.log(ns_dst[0]);
+    console.log(xs_dst[0]);
+    console.log(ys_dst[0]);
+    console.log(zs_dst[0]);
+
+    console.log(ns_dst[nodes_count-1]);
+    console.log(xs_dst[nodes_count-1]);
+    console.log(ys_dst[nodes_count-1]);
+    console.log(zs_dst[nodes_count-1]);
+
+    console.log("reoreinting...");
+    button.textContent = 'Reorienting...';
+    slicer.instance.exports.reorient(data_ptr, 0,0,0,1 );
+
+    console.log("reslicing...");
+    button.textContent = 'Reslicing...';
+    const cuts = slicer.instance.exports.reslice(data_ptr, slider_value);
+    console.log(cuts);
+
+    const vertex_data = new Float32Array(slicer_memory.buffer, data[0], elems_count * 4 * 6);
+    const vertex_stride = 4 * 3;
+
+
+
     const vert_wgsl = await (await fetch('vert.wgsl')).text();
     const frag_wgsl = await (await fetch('frag.wgsl')).text();
 
     const adapter = await navigator.gpu?.requestAdapter({
         featureLevel: 'compatibility',
     });
-    const device = await adapter?.requestDevice();
+    const device = await adapter?.requestDevice({
+        requiredLimits: {
+            maxBufferSize: 2147483648
+        }
+    });
     quitIfWebGPUNotAvailableOrMissingFeatures(adapter, device);
 
     const context = canvas.getContext('webgpu');
@@ -40,49 +171,10 @@ async function main() {
     });
     
 
-    const vertex_stride = 4 * 3;
-    const vertex_data = new Float32Array([
-        -1,-1,-1,
-         1,-1,-1,
-        -1, 1,-1,
-         1, 1,-1,
-        -1,-1, 1,
-         1,-1, 1,
-        -1, 1, 1,
-         1, 1, 1,
-    ]);
     const vertex_buffer = device.createBuffer({
         size: vertex_data.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        mappedAtCreation: true,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
     });
-    new Float32Array(vertex_buffer.getMappedRange()).set(vertex_data);
-    vertex_buffer.unmap();
-
-
-    const cube_indices_length = 3 * 12;
-    const index_data_type = 'uint32';
-    const index_data = new Uint32Array([
-        0, 1, 5,
-        5, 4, 0,
-        0, 4, 6,
-        6, 2, 0,
-        0, 2, 3,
-        3, 1, 0,
-        7, 6, 4,
-        4, 5, 7,
-        7, 5, 1,
-        1, 3, 7,
-        7, 3, 2,
-        2, 6, 7,
-    ]);
-    const index_buffer = device.createBuffer({
-        size: index_data.byteLength,
-        usage: GPUBufferUsage.INDEX,
-        mappedAtCreation: true,
-    });
-    new Uint32Array(index_buffer.getMappedRange()).set(index_data);
-    index_buffer.unmap();
 
 
     const pipeline = device.createRenderPipeline({
@@ -115,7 +207,7 @@ async function main() {
             ],
         },
         primitive: {
-            topology: 'triangle-list', // 'line-list',
+            topology: 'line-list',
             cullMode: 'back',
         },
         depthStencil: {
@@ -169,15 +261,15 @@ async function main() {
     const projMatrix = new Float32Array(16);
     const viewMatrix = new Float32Array(16);
 
+    let draw_verts_count = 0;
     drawframe = function(timestamp) {
         const currentTexture = context.getCurrentTexture();
 
         const w = currentTexture.width;
         const h = currentTexture.height;
-        const z = Math.exp(-zoom * Math.LN2 / 1200);
-        const f = Math.sqrt(w*w + h*h) * z;
+        const f = Math.sqrt(w*w + h*h);
         const p = projMatrix;
-        const v = viewMatrix;   
+        const v = viewMatrix;
         [ p[ 0] , p[ 4] , p[ 8] , p[12] ] = [ 1/w , 0.0 , 0.0 , 0.0 ];
         [ p[ 1] , p[ 5] , p[ 9] , p[13] ] = [ 0.0 , 1/h , 0.0 , 0.0 ];
         [ p[ 2] , p[ 6] , p[10] , p[14] ] = [ 0.0 , 0.0 , 0.0 , 1/f ];
@@ -188,17 +280,27 @@ async function main() {
           v[ 2] , v[ 6] , v[10] ] = viewQuat.asColMat();
         [ v[ 3] , v[ 7] , v[11] ] = [ 0.0 , 0.0 , 0.0 ];
         
-        v[12] = 0.0;
-        v[13] = 0.0;
-        v[14] =-4.0;
+        v[12] = viewPos[0];
+        v[13] = viewPos[1];
+        v[14] = viewPos[2];
         v[15] = 1.0;
-
-        const testarr = new Float32Array([slider_value, slider_value, slider_value]);
-        device.queue.writeBuffer(vertex_buffer, 84, testarr.buffer, testarr.byteOffset, testarr.byteLength);
 
         device.queue.writeBuffer(cameraBuffer, 0, p.buffer, p.byteOffset, p.byteLength);
         device.queue.writeBuffer(modelBuffer, 0, v.buffer, v.byteOffset, v.byteLength);
-        
+
+        if (last_slider_value != slider_value) {            
+            last_slider_value = slider_value
+
+            console.log("reslicing...");
+            const cuts = slicer.instance.exports.reslice(data_ptr, slider_value);
+            console.log(cuts);
+
+            const update_bytes = cuts * 6 * 4; // six f32 per cut
+            draw_verts_count = cuts * 2; // two verts per cut
+            device.queue.writeBuffer(vertex_buffer, 0, vertex_data.buffer, vertex_data.byteOffset, update_bytes);
+
+        }
+
         if (!depthTexture ||
             depthTexture.width  !== w ||
             depthTexture.height !== h) {
@@ -219,8 +321,7 @@ async function main() {
         passEncoder.setPipeline(pipeline);
         passEncoder.setBindGroup(0, uniformBindGroup);
         passEncoder.setVertexBuffer(0, vertex_buffer);
-        passEncoder.setIndexBuffer(index_buffer, index_data_type);
-        passEncoder.drawIndexed(cube_indices_length);
+        passEncoder.draw(draw_verts_count);
         passEncoder.end();
         device.queue.submit([commandEncoder.finish()]);
         window.frame_queued = false;
@@ -229,11 +330,11 @@ async function main() {
     window.frame_queued = true;
     requestAnimationFrame(drawframe);
 
+    button.textContent = 'Done.';
 }
 
 function handle_wheel(event) {
-    zoom += event.deltaY;
-    zoom = Math.max(-1200, Math.min(zoom, 1200));
+    viewPos[2] -= event.deltaY / 12;
     if (!window.frame_queued) {
         window.frame_queued = true;
         requestAnimationFrame(drawframe);
@@ -265,15 +366,25 @@ function handle_move(event) {
     dragX = event.clientX;
     dragY = event.clientY;
     if (rr > 0) {
-        const sens = 16.0 * Math.PI / 10800.0; // 16 arcmin per count
-        const rad = Math.sqrt(rr) * sens;
-        const rot = Quat(
-            Math.sin(rad/2) * (-ry) / Math.sqrt(rr),
-            Math.sin(rad/2) * (-rx) / Math.sqrt(rr),
-            0,
-            Math.cos(rad/2),
-        )
-        viewQuat = viewQuat.compose(rot);
+        if (Boolean(event.buttons & 2)) {
+            viewPos[0] += rx * 0.125;
+            viewPos[1] -= ry * 0.125;
+        } else {
+            const sens = 16.0 * Math.PI / 10800.0; // 16 arcmin per count
+            const rad = Math.sqrt(rr) * sens;
+            const rot = Quat(
+                Math.sin(rad/2) * (-ry) / Math.sqrt(rr),
+                Math.sin(rad/2) * (-rx) / Math.sqrt(rr),
+                0,
+                Math.cos(rad/2),
+            )
+            viewQuat = viewQuat.compose(rot);
+            const m = rot.asColMat();
+            const [ x , y , z ] = viewPos;
+            viewPos[0] = m[0]*x + m[1]*y + m[2]*z;
+            viewPos[1] = m[3]*x + m[4]*y + m[5]*z;
+            viewPos[2] = m[6]*x + m[7]*y + m[8]*z;
+        }
         if (!window.frame_queued) {
             window.frame_queued = true;
             requestAnimationFrame(drawframe);
