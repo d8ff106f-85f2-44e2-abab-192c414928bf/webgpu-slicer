@@ -161,9 +161,7 @@ async function init() {
     const frag_wgsl = await (await fetch('frag.wgsl')).text();
 
     button.value = 'Requesting WebGPU Adapter...';
-    const adapter = await navigator.gpu?.requestAdapter({
-        featureLevel: 'compatibility',
-    });
+    const adapter = await navigator.gpu?.requestAdapter();
 
     button.value = 'Requesting WebGPU Device...';
     const device = await adapter?.requestDevice({
