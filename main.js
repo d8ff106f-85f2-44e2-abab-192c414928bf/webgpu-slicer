@@ -27,7 +27,7 @@ async function init() {
 
     const button = document.getElementById('button');
     button.disabled = true;
-    button.textContent = 'Reading model...';
+    button.value = 'Reading model...';
     
     const upload = document.getElementById('upload');
     const file_size = upload.files[0].size;
@@ -75,7 +75,7 @@ async function init() {
     }
 
     console.log("parsing model...");
-    button.textContent = 'Processing model...';
+    button.value = 'Processing model...';
     const meta_ptr = parser.instance.exports.parseModel(file_ptr, file_size);
     if (meta_ptr == 0) {
         console.log("failed to parse model");
@@ -144,11 +144,11 @@ async function init() {
     console.log(zs_dst[nodes_count-1]);
 
     console.log("reoreinting...");
-    button.textContent = 'Reorienting...';
+    button.value = 'Reorienting...';
     slicer.instance.exports.reorient(data_ptr, 0,0,0,1 );
 
     console.log("reslicing...");
-    button.textContent = 'Reslicing...';
+    button.value = 'Reslicing...';
     const cuts = slicer.instance.exports.reslice(data_ptr, slider_value);
     console.log(cuts);
 
@@ -160,22 +160,22 @@ async function init() {
     const vert_wgsl = await (await fetch('vert.wgsl')).text();
     const frag_wgsl = await (await fetch('frag.wgsl')).text();
 
-    button.textContent = 'Requesting WebGPU Adapter...';
+    button.value = 'Requesting WebGPU Adapter...';
     const adapter = await navigator.gpu?.requestAdapter({
         featureLevel: 'compatibility',
     });
 
-    button.textContent = 'Requesting WebGPU Device...';
+    button.value = 'Requesting WebGPU Device...';
     const device = await adapter?.requestDevice({
         requiredLimits: {
             maxBufferSize: 512*1024*1024,
         }
     });
 
-    button.textContent = 'Checking WebGPU Compatibility...'
+    button.value = 'Checking WebGPU Compatibility...'
     quitIfWebGPUNotAvailableOrMissingFeatures(adapter, device);
 
-    button.textContent = 'Getting WebGPU Context...';
+    button.value = 'Getting WebGPU Context...';
     const context = canvas.getContext('webgpu');
     canvas.width = canvas.clientWidth * window.devicePixelRatio;
     canvas.height = canvas.clientHeight * window.devicePixelRatio;
@@ -187,14 +187,14 @@ async function init() {
     });
     
 
-    button.textContent = 'Creating Vertex Buffer...';
+    button.value = 'Creating Vertex Buffer...';
     const vertex_buffer = device.createBuffer({
         size: vertex_data.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
     });
 
 
-    button.textContent = 'Creating Render Pipeline...';
+    button.value = 'Creating Render Pipeline...';
     const pipeline = device.createRenderPipeline({
         layout: 'auto',
         vertex: {
@@ -236,26 +236,26 @@ async function init() {
     });
 
     
-    button.textContent = 'Creating Depth Texture...';
+    button.value = 'Creating Depth Texture...';
     let depthTexture = device.createTexture({
         size: [canvas.width, canvas.height],
         format: 'depth24plus',
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
 
-    button.textContent = 'Creating Camera Uniform...';
+    button.value = 'Creating Camera Uniform...';
     const cameraBuffer = device.createBuffer({
         size: 4 * 16, // 4x4 matrix
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    button.textContent = 'Creating Model Uniform...';
+    button.value = 'Creating Model Uniform...';
     const modelBuffer = device.createBuffer({
         size: 4 * 16, // 4x4 matrix
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    button.textContent = 'Creating Bind Group...';
+    button.value = 'Creating Bind Group...';
     const uniformBindGroup = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
         entries: [
@@ -353,7 +353,7 @@ async function init() {
     window.frame_queued = true;
     requestAnimationFrame(drawframe);
 
-    button.textContent = 'Done.';
+    button.value = 'Done.';
 }
 
 function handle_wheel(event) {
