@@ -160,9 +160,12 @@ async function init() {
     const vert_wgsl = await (await fetch('vert.wgsl')).text();
     const frag_wgsl = await (await fetch('frag.wgsl')).text();
 
+    button.textContent = 'Requesting WebGPU Adapter...';
     const adapter = await navigator.gpu?.requestAdapter({
         featureLevel: 'compatibility',
     });
+
+    button.textContent = 'Requesting WebGPU Device...';
     const device = await adapter?.requestDevice({
         requiredLimits: {
             maxBufferSize: 512*1024*1024,
@@ -170,6 +173,7 @@ async function init() {
     });
     quitIfWebGPUNotAvailableOrMissingFeatures(adapter, device);
 
+    button.textContent = 'Getting WebGPU Context...';
     const context = canvas.getContext('webgpu');
     canvas.width = canvas.clientWidth * window.devicePixelRatio;
     canvas.height = canvas.clientHeight * window.devicePixelRatio;
@@ -181,12 +185,14 @@ async function init() {
     });
     
 
+    button.textContent = 'Creating Vertex Buffer...';
     const vertex_buffer = device.createBuffer({
         size: vertex_data.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
     });
 
 
+    button.textContent = 'Creating Render Pipeline...';
     const pipeline = device.createRenderPipeline({
         layout: 'auto',
         vertex: {
@@ -227,22 +233,27 @@ async function init() {
         },
     });
 
+    
+    button.textContent = 'Creating Depth Texture...';
     let depthTexture = device.createTexture({
         size: [canvas.width, canvas.height],
         format: 'depth24plus',
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
 
+    button.textContent = 'Creating Camera Uniform...';
     const cameraBuffer = device.createBuffer({
         size: 4 * 16, // 4x4 matrix
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
+    button.textContent = 'Creating Model Uniform...';
     const modelBuffer = device.createBuffer({
         size: 4 * 16, // 4x4 matrix
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
+    button.textContent = 'Creating Bind Group...';
     const uniformBindGroup = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
         entries: [
