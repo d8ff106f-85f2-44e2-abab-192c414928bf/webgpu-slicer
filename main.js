@@ -171,6 +171,8 @@ async function init() {
             maxBufferSize: 512*1024*1024,
         }
     });
+
+    button.textContent = 'Checking WebGPU Compatibility...'
     quitIfWebGPUNotAvailableOrMissingFeatures(adapter, device);
 
     button.textContent = 'Getting WebGPU Context...';
