@@ -30,10 +30,20 @@ async function init() {
     button.textContent = 'Reading model...';
     
     const upload = document.getElementById('upload');
-
-    const file_stream = upload.files[0].stream();
     const file_size = upload.files[0].size;
-
+    const file_reader = upload.files[0].stream().getReader();
+    const file_iterator = {
+        next() {
+            return file_reader.read();
+        },
+        return() {
+            file_reader.releaseLock();
+            return {};
+        },
+        [Symbol.asyncIterator]() {
+            return this;
+        },
+    };
 
     const parser_memory = new WebAssembly.Memory({
         initial: 17,
@@ -59,7 +69,7 @@ async function init() {
 
     const destination = new Uint8Array(parser_memory.buffer, file_ptr, file_size);
     let offset = 0;
-    for await (const chunk of file_stream) {
+    for await (const chunk of file_iterator) {
         destination.set(chunk, offset);
         offset += chunk.length;
     }
