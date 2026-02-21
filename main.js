@@ -13,6 +13,7 @@ let slicer_wasm = {};
 let slicer_data = 0;
 let drawframe = function(timestamp) {};
 
+button.addEventListener("click", init );
 slider.addEventListener("input", handle_slider);
 canvas.addEventListener("mousemove", handle_move);
 canvas.addEventListener("touchmove", handle_touch);
@@ -22,8 +23,9 @@ window.addEventListener("mouseup", handle_up);
 window.addEventListener("touchend", handle_up);
 window.addEventListener("resize", handle_resize);
 window.addEventListener("wheel", handle_wheel);
-button.addEventListener("click", init );
+window.addEventListener("keyup", handle_keyup);
 window.frame_queued = false;
+window.reorient_queued = false;
 
 async function init() {
 
@@ -284,6 +286,20 @@ async function init() {
 
     let draw_verts_count = 0;
     drawframe = function(timestamp) {
+        if (window.reorient_queued) {
+            if (button.value == 'Reorienting...') {
+                window.reorient_queued = false;
+                last_slider_value = 0.0 / 0.0;
+                slicer.instance.exports.reorient(data_ptr, viewQuat.i, viewQuat.j, viewQuat.k, -viewQuat.l);
+                button.value = "Done.";
+            } else {
+                button.value = 'Reorienting...';
+                window.frame_queued = true;
+                requestAnimationFrame(drawframe);
+                return;
+            }
+        }
+
         const currentTexture = context.getCurrentTexture();
 
         const w = currentTexture.width;
@@ -371,6 +387,16 @@ function handle_wheel(event) {
     if (!window.frame_queued) {
         window.frame_queued = true;
         requestAnimationFrame(drawframe);
+    }
+}
+
+function handle_keyup(event) {
+    if (event.key == " ") {
+        window.reorient_queued = true;
+        if (!window.frame_queued) {
+            window.frame_queued = true;
+            requestAnimationFrame(drawframe);
+        }
     }
 }
 
