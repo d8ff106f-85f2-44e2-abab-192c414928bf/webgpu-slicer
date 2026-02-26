@@ -267,13 +267,7 @@ async function init() {
 
     button.value = 'Creating Camera Uniform...';
     const cameraBuffer = device.createBuffer({
-        size: 4 * 16, // 4x4 matrix
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-
-    button.value = 'Creating Model Uniform...';
-    const modelBuffer = device.createBuffer({
-        size: 4 * 16, // 4x4 matrix
+        size: 4 * 16 * 2,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -282,7 +276,6 @@ async function init() {
         layout: pipeline.getBindGroupLayout(0),
         entries: [
             { binding: 0, resource: cameraBuffer },
-            { binding: 1, resource: modelBuffer },
         ],
     });
 
@@ -345,7 +338,7 @@ async function init() {
         v[15] = 1.0;
 
         device.queue.writeBuffer(cameraBuffer, 0, p.buffer, p.byteOffset, p.byteLength);
-        device.queue.writeBuffer(modelBuffer, 0, v.buffer, v.byteOffset, v.byteLength);
+        device.queue.writeBuffer(cameraBuffer, 16 * 4, v.buffer, v.byteOffset, v.byteLength);
 
         if (last_slider_value != slider_value) {            
             last_slider_value = slider_value

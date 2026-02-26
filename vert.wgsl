@@ -1,5 +1,9 @@
-@group(0) @binding(0) var<uniform> proj : mat4x4f;
-@group(0) @binding(1) var<uniform> view : mat4x4f;
+@group(0) @binding(0) var<uniform> cam: Camera;
+
+struct Camera {
+    proj : mat4x4f,
+    view : mat4x4f,
+}
 
 struct VertexOutput {
     @builtin(position) Position : vec4f,
@@ -12,7 +16,7 @@ fn main(
     @location(0) position : vec3f,
 ) -> VertexOutput {
     var output : VertexOutput;
-    output.Position = proj * view * vec4(position, 1);
+    output.Position = cam.proj * cam.view * vec4(position, 1);
     output.fragUV = vec2(0);
     output.fragPosition = 0.5 * (vec4(position, 1) + vec4(1.0, 1.0, 1.0, 1.0));
     return output;
